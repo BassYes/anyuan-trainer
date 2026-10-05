@@ -1,6 +1,6 @@
 'use strict';
 /**
- * 方案B 插件逻辑测试 — 用最小 RMMZ 模拟环境加载插件并执行各功能
+ * 内置修改器 插件逻辑测试 — 用最小 RMMZ 模拟环境加载插件并执行各功能
  * 运行: node _test_plugin.js
  */
 const fs = require('fs');

@@ -4,8 +4,8 @@
 /**
  * 黯渊崛起 修改器 — 统一启动器
  *
- *  方案B「内置修改器」为主：注入插件，游戏内实时修改（F10 / 主菜单「修改器」）
- *  方案A「存档修改器」为辅：直接读写 save/*.rmmzsave
+ *  内置修改器为主：注入插件，游戏内实时修改（F10 / 主菜单「修改器」）
+ *  存档修改器为辅：直接读写 save/*.rmmzsave
  *
  * 用法: node launcher.js [--game "游戏目录"]
  */
@@ -61,7 +61,7 @@ const MENU = [
     ['2', '卸载 内置修改器（还原原版）', () => runNode(INSTALL, ['--game', gameDir, 'uninstall'])],
     ['3', '查看安装状态', () => runNode(INSTALL, ['--game', gameDir, 'status'])],
     ['4', '运行自检（RMMZ 模拟环境）', () => runNode(TESTER, [], { GAME_DIR: gameDir })],
-    ['5', '打开 存档修改器（方案A）', () => runNode(TRAINER_A, ['--game', gameDir])],
+    ['5', '打开 存档修改器', () => runNode(TRAINER_A, ['--game', gameDir])],
     ['g', '设置游戏目录', null],
     ['0', '退出', null],
 ];
@@ -82,12 +82,12 @@ function main() {
 
     async function loop() {
         console.log('\n' + header());
-        console.log(' ── 方案B 内置修改器（推荐，游戏内实时）──');
+        console.log(' ── 内置修改器（推荐，游戏内实时）──');
         console.log('   [1] 安装 / 更新');
         console.log('   [2] 卸载（还原原版）');
         console.log('   [3] 查看安装状态');
         console.log('   [4] 运行自检');
-        console.log(' ── 方案A 存档修改器（改存档文件）──');
+        console.log(' ── 存档修改器（改存档文件）──');
         console.log('   [5] 打开存档修改器');
         console.log(' ── 其他 ──');
         console.log('   [g] 设置游戏目录');
