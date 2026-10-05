@@ -76,11 +76,9 @@ function install(gameDir) {
     const p = checkGame(gameDir);
 
     if (isInstalled(p)) {
-        console.log('✓ 修改器已安装（plugins.js 中已存在 ' + PLUGIN_NAME + '）');
-        if (!fs.existsSync(p.pluginDest)) {
-            fs.copyFileSync(path.join(HERE, PLUGIN_FILE), p.pluginDest);
-            console.log('  已补齐插件文件 ' + PLUGIN_FILE);
-        }
+        // 已安装也要复制一次，使「安装 / 更新」能升级到最新版插件
+        fs.copyFileSync(path.join(HERE, PLUGIN_FILE), p.pluginDest);
+        console.log('✓ 修改器已安装，插件文件已更新到最新版');
         console.log('  打开方式：F10 / 主菜单「修改器」/ 右上角按钮。');
         return;
     }
