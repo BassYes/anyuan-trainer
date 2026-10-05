@@ -1,0 +1,9 @@
+# 备份与临时产物（不入库）
+builtin/backups/
+save-editor/trainer_backups/
+*.bak
+_t/
+_g/
+_test/
+__pycache__/
+*.log
