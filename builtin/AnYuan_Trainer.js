@@ -3,7 +3,7 @@
 //=============================================================================
 /*:
  * @target MZ
- * @plugindesc v1.2 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
+ * @plugindesc v1.3 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
  * @author AnYuan Trainer
  * @help
  * ============================================================
@@ -11,29 +11,18 @@
  *     · 按 F10
  *     · 或点右上角「修改器」按钮
  *  操作:  ↑↓ 选择   Z/回车 执行   X/Esc 关闭
+ *  ------------------------------------------------
+ *  ⚠ 适度使用提醒：修改太强会让游戏很快失去乐趣，
+ *    建议优先使用【便利功能】（倍率/加速），少用【一键修改】。
  * ============================================================
- *  交互式编辑:
- *    添加物品…      物品/武器/防具（←→ 直接切类别，Q/W 或滚轮翻页），输入数量添加
- *    设置金币…      输入精确金币数量
- *    设置角色等级…  选择队伍角色并设定等级
- *    修改变量/开关… 选择变量或开关并修改数值
- *    存档信息       显示金币/队伍/时长等信息
- *  倍速:
- *    全局倍速    1x/2x/3x/4x  地图/战斗/动画整体加速
- *    战斗加速    1x/2x/3x/4x  仅战斗中加速
- *  实时开关:
- *    无敌模式    队伍成员不会掉血/死亡
- *    一击必杀    我方造成伤害时敌人立刻死亡
- *    不遇敌      地图上不触发随机战斗
- *    穿墙        可穿过障碍物
- *    移动加速    地图移动速度 x2
- *    无限MP/TP   MP/TP 保持全满
- *    自动满血    队伍成员始终保持满血
- *  一键功能:
- *    金币 +100万 / 队伍满级 / 满属性 / 满血蓝
- *    全物品 / 全技能 / 全图鉴 / 全宠物
- *    精通拉满 / 觉醒拉满 / 冒险者任务 / 门派日常
- *    清商店限购 / 清装备锁 / 清红点 / 重置礼包码
+ *  便利功能（降肝不毁游戏）:
+ *    经验倍率 / 金币倍率 / 掉宝倍率   1x~5x（只影响战斗奖励）
+ *    全局倍速 / 战斗加速 / 移动加速 / 不遇敌 / 自动满血 / 无限MP·TP
+ *  战斗辅助: 无敌模式 / 一击必杀 / 穿墙
+ *  交互式编辑: 添加物品、背包物品数量、设置角色等级、设置金币、
+ *              修改变量开关、存档信息
+ *  一键修改（⚠ 影响游戏寿命）: 满级、属性、全物品、全技能、图鉴、
+ *              宠物、精通、觉醒、任务、礼包码…
  *
  * @param openKeyCode
  * @text 打开热键 keyCode
@@ -66,8 +55,11 @@
         autoHeal: false,
         gameSpeed: 1,
         battleSpeed: 1,
+        expMult: 1,
+        goldMult: 1,
+        dropMult: 1,
         _suppressInput: false,
-        version: '1.2'
+        version: '1.3'
     });
 
     const say = msg => { T.lastMessage = msg; };
@@ -197,6 +189,57 @@
         if ($gamePlayer && $gamePlayer._followers) {
             $gamePlayer._followers._data.forEach(f => { if (f) f._through = T.through; });
         }
+    }
+
+    //=========================================================================
+    // 便利功能：经验 / 金币 / 掉宝 倍率
+    //  直接挂在游戏自带的 BZ_ExpAndDropRateBonus 体系上：
+    //    expRateBonus() 返回倍率（+100% → 1.0）
+    //    dropRateBonus() / goldRateBonus() 返回百分比（+100% → 100）
+    //  游戏侧通过 maxExpRate()/maxGoldRate()/maxDropRate() 作用于
+    //    Game_Troop.expTotal / goldTotal、Game_Enemy.dropItemRate
+    //  因此只影响战斗奖励，不会直接把数值拉满，属于“降肝不毁游戏”的功能。
+    //=========================================================================
+    function refreshRateCache() {
+        try { if ($gameParty && $gameParty.clearRateBonusCache) $gameParty.clearRateBonusCache(); } catch (e) { /* ignore */ }
+    }
+
+    if (typeof Game_Actor !== 'undefined' && Game_Actor.prototype.expRateBonus) {
+        const _expRateBonus = Game_Actor.prototype.expRateBonus;
+        Game_Actor.prototype.expRateBonus = function() {
+            let v = _expRateBonus.call(this);
+            const m = Number(T.expMult) || 1;
+            if (m > 1) v += (m - 1);
+            return v;
+        };
+    }
+    if (typeof Game_Actor !== 'undefined' && Game_Actor.prototype.dropRateBonus) {
+        const _dropRateBonus = Game_Actor.prototype.dropRateBonus;
+        Game_Actor.prototype.dropRateBonus = function() {
+            let v = _dropRateBonus.call(this);
+            const m = Number(T.dropMult) || 1;
+            if (m > 1) v += (m - 1) * 100;
+            return v;
+        };
+    }
+    if (typeof Game_Actor !== 'undefined' && Game_Actor.prototype.goldRateBonus) {
+        const _goldRateBonus = Game_Actor.prototype.goldRateBonus;
+        Game_Actor.prototype.goldRateBonus = function() {
+            let v = _goldRateBonus.call(this);
+            const m = Number(T.goldMult) || 1;
+            if (m > 1) v += (m - 1) * 100;
+            return v;
+        };
+    }
+
+    // 当前生效的获取率（用于展示）
+    function currentRates() {
+        try {
+            const e = $gameParty.maxExpRate ? $gameParty.maxExpRate() : 1;
+            const g = $gameParty.maxGoldRate ? $gameParty.maxGoldRate() : 1;
+            const d = $gameParty.maxDropRate ? $gameParty.maxDropRate() : 1;
+            return '经验 ' + Math.round(e * 100) + '%  金币 ' + Math.round(g * 100) + '%  掉宝 ' + Math.round(d * 100) + '%';
+        } catch (err) { return ''; }
     }
 
     //=========================================================================
@@ -421,42 +464,54 @@
     };
 
     //=========================================================================
-    // 命令表
+    // 命令表（按分组排列；kind:'header' 为不可选的分组标题）
     //=========================================================================
+    const H = name => ({ kind: 'header', name });
+    const W = '\u26a0';
+
     const CMDS = [
+        H('【便利功能】降肝不毁游戏，推荐优先用这些'),
+        { sym: 'expMult', name: '经验倍率', kind: 'cycle', values: [1, 2, 3, 5], labels: ['1x', '2x', '3x', '5x'], apply: refreshRateCache, desc: '战斗获得经验 ×N（只影响战斗奖励，保留成长乐趣）' },
+        { sym: 'goldMult', name: '金币倍率', kind: 'cycle', values: [1, 2, 3, 5], labels: ['1x', '2x', '3x', '5x'], apply: refreshRateCache, desc: '战斗获得金币 ×N（只影响战斗奖励）' },
+        { sym: 'dropMult', name: '掉宝倍率', kind: 'cycle', values: [1, 2, 3, 5], labels: ['1x', '2x', '3x', '5x'], apply: refreshRateCache, desc: '战利品掉率 ×N（只影响战斗奖励）' },
+        { sym: 'gameSpeed', name: '全局倍速', kind: 'cycle', values: [1, 2, 3, 4], labels: ['1x', '2x', '3x', '4x'], desc: '地图/战斗/动画整体加速（1x 为正常速度）' },
+        { sym: 'battleSpeed', name: '战斗加速', kind: 'cycle', values: [1, 2, 3, 4], labels: ['1x', '2x', '3x', '4x'], desc: '仅战斗中加速（与全局倍速取较大值）' },
+        { sym: 'speed', name: '移动加速', kind: 'toggle', desc: '地图移动速度 x2' },
+        { sym: 'noEncounter', name: '不遇敌', kind: 'toggle', desc: '地图上不触发随机战斗' },
+        { sym: 'autoHeal', name: '自动满血', kind: 'toggle', desc: '队伍成员始终保持满血' },
+        { sym: 'infiniteMp', name: '无限MP/TP', kind: 'toggle', desc: 'MP、TP 保持全满' },
+
+        H('【战斗辅助】'),
         { sym: 'god', name: '无敌模式', kind: 'toggle', desc: '队伍成员不会掉血、不会死亡' },
         { sym: 'oneHit', name: '一击必杀', kind: 'toggle', desc: '我方造成伤害时敌人立即死亡' },
-        { sym: 'noEncounter', name: '不遇敌', kind: 'toggle', desc: '地图上不触发随机战斗' },
         { sym: 'through', name: '穿墙', kind: 'toggle', desc: '角色可穿过障碍物', apply: applyThrough },
-        { sym: 'speed', name: '移动加速', kind: 'toggle', desc: '地图移动速度 x2' },
-        { sym: 'infiniteMp', name: '无限MP/TP', kind: 'toggle', desc: 'MP、TP 保持全满' },
-        { sym: 'autoHeal', name: '自动满血', kind: 'toggle', desc: '队伍成员始终保持满血' },
-        { sym: 'gameSpeed', name: '全局倍速', kind: 'cycle', values: [1, 2, 3, 4], labels: ['1x', '2x', '3x', '4x'], desc: '地图/战斗/动画整体加速（1x 为正常速度）' },
-        { sym: 'battleSpeed', name: '战斗加速', kind: 'cycle', values: [1, 2, 3, 4], labels: ['1x', '2x', '3x', '4x'], desc: '仅战斗中加速（可与全局倍速叠加取大值）' },
 
-        { sym: 'gold', name: '金币 +100万', run: () => RUN.gold(), desc: '立即增加 1,000,000 金币' },
-
-        { sym: 'giveItem', name: '添加物品…', kind: 'scene', pick: 'item', desc: '按类别浏览全部物品/武器/防具，输入数量添加' },
-        { sym: 'setGold', name: '设置金币…', kind: 'gold', desc: '输入精确金币数量' },
+        H('【交互式编辑】逐项查看并修改'),
+        { sym: 'giveItem', name: '添加物品…', kind: 'scene', pick: 'item', desc: '浏览全部物品/武器/防具，输入数量添加' },
+        { sym: 'ownItem', name: '背包物品数量…', kind: 'scene', pick: 'ownedItem', desc: '只列出已拥有的物品，直接设为指定数量（设为0即移除）' },
         { sym: 'setLevel', name: '设置角色等级…', kind: 'scene', pick: 'actorLevel', desc: '选择队伍角色并设定等级' },
+        { sym: 'setGold', name: '设置金币…', kind: 'gold', desc: '输入精确金币数量' },
         { sym: 'setVar', name: '修改变量/开关…', kind: 'scene', pick: 'variable', desc: '选择变量或开关并修改数值' },
-        { sym: 'saveInfo', name: '存档信息', kind: 'info', desc: '显示金币/队伍/时长等信息' },
-        { sym: 'maxlevel', name: '队伍满级', run: () => RUN.maxlevel(), desc: '队伍全员升到等级上限' },
-        { sym: 'boost', name: '属性拉满 +9999', run: () => RUN.boost(), desc: '全员全属性 +9999 并回满' },
+        { sym: 'saveInfo', name: '存档信息', kind: 'info', desc: '显示金币/队伍/时长/获取率等信息' },
+
+        H('【一键修改】' + W + ' 使用过度会明显降低游戏乐趣'),
+        { sym: 'gold', name: '金币 +100万' + W, run: () => RUN.gold(), warn: true, desc: '立即增加 1,000,000 金币' },
+        { sym: 'maxlevel', name: '队伍满级' + W, run: () => RUN.maxlevel(), warn: true, desc: '队伍全员升到等级上限（会跳过成长过程）' },
+        { sym: 'boost', name: '属性拉满 +9999' + W, run: () => RUN.boost(), warn: true, desc: '全员全属性 +9999 并回满（会让战斗失去难度）' },
+        { sym: 'allitems', name: '全物品 x99' + W, run: () => RUN.allitems(), warn: true, desc: '获得全部物品/武器/防具' },
+        { sym: 'learnall', name: '学会全部技能' + W, run: () => RUN.learnall(), warn: true, desc: '全员学会所有职业技能' },
+        { sym: 'mastery', name: '精通拉满' + W, run: () => RUN.mastery(), warn: true, desc: '武器与技能精通满级' },
         { sym: 'fullhp', name: '满血满蓝', run: () => RUN.fullhp(), desc: '队伍全体 HP/MP 全满' },
-        { sym: 'allitems', name: '全物品 x99', run: () => RUN.allitems(), desc: '获得全部物品/武器/防具' },
-        { sym: 'learnall', name: '学会全部技能', run: () => RUN.learnall(), desc: '全员学会所有职业技能' },
         { sym: 'unlockall', name: '图鉴全解锁', run: () => RUN.unlockall(), desc: '怪物/技能/状态/装备/宠物图鉴' },
         { sym: 'pets', name: '加入全部宠物', run: () => RUN.pets(), desc: '全部宠物加入宠物栏' },
-        { sym: 'mastery', name: '精通拉满', run: () => RUN.mastery(), desc: '武器与技能精通满级' },
         { sym: 'awaken', name: '觉醒值拉满', run: () => RUN.awaken(), desc: '全员觉醒值 100' },
         { sym: 'tasklist', name: '冒险者任务完成', run: () => RUN.tasklist(), desc: '任务全完成 + 积分/等级拉满' },
         { sym: 'secttask', name: '门派日常完成', run: () => RUN.secttask(), desc: '四门派日常任务标记完成' },
         { sym: 'shoplimit', name: '清商店限购', run: () => RUN.shoplimit(), desc: '清除商店购买次数限制' },
         { sym: 'unlockequip', name: '清装备锁', run: () => RUN.unlockequip(), desc: '解除装备锁定' },
-        { sym: 'clearnew', name: '清新物品红点', run: () => RUN.clearnew(), desc: '清除背包"新"标记' },
+        { sym: 'clearnew', name: '清新物品红点', run: () => RUN.clearnew(), desc: '清除背包“新”标记' },
         { sym: 'giftreset', name: '重置礼包码', run: () => RUN.giftreset(), desc: '可重新兑换全部礼包码' },
-        { sym: 'cheatall', name: '★ 一键全解锁', run: () => RUN.cheatall(), desc: '执行全部一键功能' },
+        { sym: 'cheatall', name: '★ 一键全解锁' + W + W, run: () => RUN.cheatall(), warn: true, desc: '执行全部一键功能（强烈建议先备份存档）' },
     ];
 
     //=========================================================================
@@ -506,6 +561,29 @@
     Window_CheatCommand.prototype.constructor = Window_CheatCommand;
     Window_CheatCommand.prototype.numVisibleRows = function() { return 12; };
     Window_CheatCommand.prototype.maxCols = function() { return 1; };
+    // 分组标题行不可选
+    Window_CheatCommand.prototype.isCommandEnabled = function(index) {
+        const c = CMDS[index];
+        return !!(c && c.kind !== 'header');
+    };
+    // 把光标吸附到最近的可选项（跳过 header）
+    Window_CheatCommand.prototype.select = function(index) {
+        const n = this.maxItems();
+        if (n <= 0) return;
+        const last = this._index;
+        let dir = (last === undefined || last < 0 || index >= last) ? 1 : -1;
+        let i = Math.max(0, Math.min(n - 1, index));
+        let guard = 0;
+        while (i >= 0 && i < n && CMDS[i] && CMDS[i].kind === 'header' && guard++ <= n) i += dir;
+        if (i < 0 || i >= n) {
+            i = Math.max(0, Math.min(n - 1, index));
+            dir = -dir;
+            guard = 0;
+            while (i >= 0 && i < n && CMDS[i] && CMDS[i].kind === 'header' && guard++ <= n) i += dir;
+        }
+        if (i < 0 || i >= n) i = Math.max(0, Math.min(n - 1, index));
+        Window_Selectable.prototype.select.call(this, i);
+    };
     // 只处理上/下与翻页；左/右留给 Scene 用于切换开关/倍速
     Window_CheatCommand.prototype.processCursorMove = function() {
         if (this.isCursorMovable()) {
@@ -518,22 +596,18 @@
         }
     };
     Window_CheatCommand.prototype.makeCommandList = function() {
-        for (const c of CMDS) this.addCommand(c.name, c.sym, true);
-    };
-    Window_CheatCommand.prototype.labelFor = function(c) {
-        if (c.kind === 'toggle') return c.name + '   [' + (T[c.sym] ? '开' : '关') + ']';
-        if (c.kind === 'cycle') {
-            const i = c.values.indexOf(Number(T[c.sym]));
-            return c.name + '   ' + c.labels[i >= 0 ? i : 0];
-        }
-        return c.name;
+        for (const c of CMDS) this.addCommand(c.name, c.sym || c.name, c.kind !== 'header');
     };
     Window_CheatCommand.prototype.drawItem = function(index) {
         const c = CMDS[index];
+        if (!c) return;
         const rect = this.itemLineRect(index);
-        this.changePaintOpacity(this.isCommandEnabled(index));
+        if (c.kind === 'header') {
+            this.changeTextColor(ColorManager.systemColor());
+            this.drawText(c.name, rect.x, rect.y, rect.width, 'left');
+            return;
+        }
         this.resetTextColor();
-        this.drawText(c.name, rect.x, rect.y, rect.width - 84, 'left');
         let right = '';
         let on = false;
         if (c.kind === 'toggle') { on = !!T[c.sym]; right = on ? '● 开' : '○ 关'; }
@@ -542,12 +616,14 @@
             right = c.labels[i >= 0 ? i : 0];
             on = i > 0;
         }
+        if (c.warn) this.changeTextColor(ColorManager.textColor(17));   // ⚠ 提醒色
+        this.drawText(c.name, rect.x, rect.y, rect.width - 84, 'left');
+        this.resetTextColor();
         if (right) {
             this.changeTextColor(on ? ColorManager.powerUpColor() : ColorManager.normalColor());
             this.drawText(right, rect.x + rect.width - 90, rect.y, 90, 'right');
             this.resetTextColor();
         }
-        this.changePaintOpacity(true);
     };
 
     //=========================================================================
@@ -565,9 +641,10 @@
         Scene_MenuBase.prototype.create.call(this);
         const w = Graphics.boxWidth;
         const h = Graphics.boxHeight;
-        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 64));
+        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 96));
         this.addWindow(this._statusWindow);
-        this._commandWindow = new Window_CheatCommand(new Rectangle(0, 64, w, h - 64 - 96));
+        this._statusWindow.setSubMessage(W + ' 适度使用：改太狠会让游戏很快失去乐趣，建议优先用【便利功能】');
+        this._commandWindow = new Window_CheatCommand(new Rectangle(0, 96, w, h - 96 - 96));
         this._commandWindow.setHandler('ok', this.onCommandOk.bind(this));
         this._commandWindow.setHandler('cancel', this.popScene.bind(this));
         this.addWindow(this._commandWindow);
@@ -578,7 +655,8 @@
     Scene_Cheat.prototype.updateHelp = function() {
         if (!this._helpWindow) return;
         const c = CMDS[this._commandWindow.index()];
-        this._helpWindow.setText(c ? (c.desc || c.name) : '↑↓ 选择, ←→/Z 执行, X/Esc/F10 关闭');
+        const base = c ? (c.desc || c.name) : '↑↓ 选择, ←→/Z 执行, X/Esc/F10 关闭';
+        this._helpWindow.setText(c && c.warn ? (W + ' 影响游戏寿命 — ' + base) : base);
     };
 
     Scene_Cheat.prototype.onCommandOk = function() {
@@ -621,7 +699,7 @@
         } else {
             try {
                 const msg = c.run ? c.run() : '（无）';
-                this._statusWindow.setMessage(msg);
+                this._statusWindow.setMessage(c.warn ? (msg + '\n' + W + ' 提醒：改得太强会让游戏很快没意思，建议适度使用') : msg);
             } catch (e) {
                 this._statusWindow.setMessage('执行出错: ' + (e && e.message ? e.message : e));
             }
@@ -653,7 +731,10 @@
         const t = ($gameSystem.playtimeText ? $gameSystem.playtimeText() : '');
         const itemN = Object.keys($gameParty._items || {}).length;
         const petN = ($gameParty._mkPetRoster || []).length;
-        return '金币 ' + g + '  |  时长 ' + t + '  |  队伍 ' + party + '  |  背包 ' + itemN + ' 种  |  宠物 ' + petN;
+        let s = '金币 ' + g + '  |  时长 ' + t + '  |  队伍 ' + party + '  |  背包 ' + itemN + ' 种  |  宠物 ' + petN;
+        const rates = currentRates();
+        if (rates) s += '  |  ' + rates;
+        return s;
     }
 
     //=========================================================================
@@ -710,6 +791,41 @@
                 e.actor.refresh();
             },
             resultText(e) { return e.name + ' → Lv ' + (e.actor._level || 1); },
+        },
+        // ---- 修改背包已有物品数量 ----
+        ownedItem: {
+            title: '修改背包物品数量',
+            categories: [
+                { name: '物品', sym: 'item' },
+                { name: '武器', sym: 'weapon' },
+                { name: '防具', sym: 'armor' },
+            ],
+            buildList(sym) {
+                const map = sym === 'item' ? $gameParty._items
+                    : sym === 'weapon' ? $gameParty._weapons : $gameParty._armors;
+                const src = sym === 'item' ? $dataItems
+                    : sym === 'weapon' ? $dataWeapons : $dataArmors;
+                const out = [];
+                for (const k of Object.keys(map || {})) {
+                    const id = Number(k);
+                    const it = src[id];
+                    if (!it || !it.name || it.name.startsWith('-----')) continue;
+                    if ($gameParty.numItems(it) <= 0) continue;
+                    out.push({
+                        id, name: it.name, item: it,
+                        sub: () => '持有 ' + $gameParty.numItems(it),
+                    });
+                }
+                out.sort((a, b) => a.id - b.id);
+                return out;
+            },
+            valueLabel: '设为', initial: 1, min: 0, max: 9999,
+            confirm(e, v) {
+                const cur = $gameParty.numItems(e.item);
+                if (v > cur) $gameParty.gainItem(e.item, v - cur, false);
+                else if (v < cur) $gameParty.gainItem(e.item, -(cur - v), true);
+            },
+            resultText(e, v) { return e.name + ' → ' + v + ' 个'; },
         },
         // ---- 修改变量 / 开关 ----
         variable: {
@@ -1122,7 +1238,7 @@
     window.AnYuanTrainer._internals = {
         PICK, CMDS, RUN, infoText, LIST,
         Scene_Cheat, Scene_PickNumber, Scene_NumberInput,
-        Window_PickList, Window_ValueInput,
+        Window_PickList, Window_ValueInput, Window_CheatCommand,
     };
-    console.log('[AnYuan_Trainer] v1.2 已加载：F10 或右上角按钮 打开');
+    console.log('[AnYuan_Trainer] v1.3 已加载：F10 或右上角按钮 打开');
 })();

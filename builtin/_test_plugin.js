@@ -59,6 +59,13 @@ Game_Actor.prototype.changeLevel = function (l) { this._level = l; };
 Game_Actor.prototype.recoverAll = function () { this._hp = this.mhp; this._mp = this.mmp; };
 Game_Actor.prototype.isLearnedSkill = function (id) { return this._skills.includes(id); };
 Game_Actor.prototype.learnSkill = function (id) { if (!this._skills.includes(id)) this._skills.push(id); };
+// 模拟游戏自带的 BZ_ExpAndDropRateBonus 体系
+Game_Actor.prototype.expRateBonus = function () { return 0; };      // 返回倍率
+Game_Actor.prototype.dropRateBonus = function () { return 0; };     // 返回百分比
+Game_Actor.prototype.goldRateBonus = function () { return 0; };
+Game_Actor.prototype.finalExpRate = function () { return 1 + this.expRateBonus(); };
+Game_Actor.prototype.finalDropRate = function () { return (100 + this.dropRateBonus()) / 100; };
+Game_Actor.prototype.finalGoldRate = function () { return (100 + this.goldRateBonus()) / 100; };
 Object.defineProperty(Game_Actor.prototype, 'mhp', { get() { return 100 + (this._paramPlus[0] || 0); } });
 Object.defineProperty(Game_Actor.prototype, 'mmp', { get() { return 50 + (this._paramPlus[1] || 0); } });
 
@@ -115,6 +122,18 @@ Window_Selectable.prototype.refresh = function () { this.drawAllItems(); };
 Window_Selectable.prototype.drawAllItems = function () { for (let i = 0; i < this.maxItems(); i++) this.drawItem(i); };
 Window_Selectable.prototype.drawItem = function () {};
 Window_Selectable.prototype.select = function (i) { this._index = i; };
+Window_Selectable.prototype.smoothSelect = function (i) { this.select(i); };
+Window_Selectable.prototype.cursorDown = function (wrap) {
+    const n = this.maxItems();
+    if (this._index < n - 1 || wrap) this.smoothSelect(this._index + 1 < n ? this._index + 1 : 0);
+};
+Window_Selectable.prototype.cursorUp = function (wrap) {
+    const n = this.maxItems();
+    if (this._index > 0 || wrap) this.smoothSelect(this._index - 1 >= 0 ? this._index - 1 : n - 1);
+};
+Window_Selectable.prototype.cursorPagedown = function () { this.smoothSelect(Math.min(this._index + 10, this.maxItems() - 1)); };
+Window_Selectable.prototype.cursorPageup = function () { this.smoothSelect(Math.max(this._index - 10, 0)); };
+Window_Selectable.prototype.playCursorSound = function () {};
 Window_Selectable.prototype.index = function () { return this._index; };
 Window_Selectable.prototype.scrollTo = function () {};
 Window_Selectable.prototype.setHandler = function (s, f) { this._handlers[s] = f; };
@@ -133,6 +152,7 @@ Window_Command.prototype = Object.create(Window_Selectable.prototype);
 Window_Command.prototype.initialize = function (rect) {
     Window_Selectable.prototype.initialize.call(this, rect);
     this._commands = [];
+    this.refresh();          // 真实 RMMZ 这里会 refresh()，否则 makeCommandList 不会被调
     this.select(0);
     this.activate();
 };
@@ -185,7 +205,7 @@ global.Window_Help = Window_Help;
 global.Window_MenuCommand = Window_MenuCommand;
 global.Scene_Battle = Scene_Battle;
 global.Scene_Menu = Scene_Menu;
-global.ColorManager = { systemColor: () => 0, powerUpColor: () => 0, normalColor: () => 0 };
+global.ColorManager = { systemColor: () => 0, powerUpColor: () => 0, normalColor: () => 0, textColor: () => 0 };
 global.Graphics = { boxWidth: 816, boxHeight: 624, frameCount: 0 };
 global.Rectangle = function (x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; };
 global.TouchInput = { update: function () { global.__touchUpdates = (global.__touchUpdates || 0) + 1; }, wheelY: 0 };
@@ -248,6 +268,18 @@ global.$gameParty = {
     _newItemsList: ['item-1', 'weapon-2'],
     _mkPetRoster: [],
     members() { return this._actors.map(id => actors[id]).filter(Boolean); },
+    battleMembers() { return this.members(); },
+    clearRateBonusCache() { this._rateCache = null; },
+    maxExpRate() { return this._maxRate('finalExpRate'); },
+    maxDropRate() { return this._maxRate('finalDropRate'); },
+    maxGoldRate() { return this._maxRate('finalGoldRate'); },
+    _maxRate(fn) {
+        if (!this._rateCache) this._rateCache = {};
+        if (this._rateCache[fn] === undefined) {
+            this._rateCache[fn] = Math.max(...this.battleMembers().map(a => a[fn]()), 1);
+        }
+        return this._rateCache[fn];
+    },
     gainGold(n) { this._gold = (this._gold || 0) + n; },
     gold() { return this._gold || 0; },
     gainItem(item, n) {
@@ -371,8 +403,9 @@ console.log('\n=== 命令表完整性 ===');
 {
     const I = T._internals;
     const seen = {};
-    let dup = 0, bad = 0;
+    let dup = 0, bad = 0, headers = 0;
     for (const c of I.CMDS) {
+        if (c.kind === 'header') { headers++; continue; }
         if (seen[c.sym]) dup++;
         seen[c.sym] = true;
         if (c.kind === 'toggle' || c.kind === 'cycle' || c.kind === 'scene' || c.kind === 'gold' || c.kind === 'info') continue;
@@ -380,11 +413,99 @@ console.log('\n=== 命令表完整性 ===');
     }
     check('无重复 symbol', dup === 0, 'dup=' + dup);
     check('命令均有实现', bad === 0, 'bad=' + bad);
+    check('有分组标题', headers >= 4, 'headers=' + headers);
     check('命令数 > 30', I.CMDS.length > 30, 'n=' + I.CMDS.length);
-    // 每个 scene 类命令的 pick 配置存在
     let miss = [];
     for (const c of I.CMDS) if (c.kind === 'scene' && !I.PICK[c.pick]) miss.push(c.sym);
     check('scene 命令的 pick 配置齐全', miss.length === 0, miss.join(','));
+    const firstReal = I.CMDS.findIndex(c => c.kind !== 'header');
+    check('第一条是分组标题', I.CMDS[0].kind === 'header');
+    check('标题后有真实命令', firstReal > 0);
+}
+
+console.log('\n=== 分组标题不可选（光标自动跳过） ===');
+{
+    const I = T._internals;
+    const cw = new I.Window_CheatCommand(new Rectangle(0, 0, 816, 432));
+    check('初始光标不在标题行', I.CMDS[cw.index()].kind !== 'header', 'idx=' + cw.index());
+    check('标题行不可执行', cw.isCommandEnabled(0) === false);
+    // 一页页向下扫，光标不应落在任何标题行
+    let stuck = null;
+    for (let i = 0; i < I.CMDS.length * 2; i++) {
+        cw.cursorDown(true);
+        if (I.CMDS[cw.index()] && I.CMDS[cw.index()].kind === 'header') { stuck = cw.index(); break; }
+    }
+    check('向下扫不落在标题行', stuck === null, stuck === null ? '' : 'idx=' + stuck);
+    let stuck2 = null;
+    for (let i = 0; i < I.CMDS.length * 2; i++) {
+        cw.cursorUp(true);
+        if (I.CMDS[cw.index()] && I.CMDS[cw.index()].kind === 'header') { stuck2 = cw.index(); break; }
+    }
+    check('向上扫不落在标题行', stuck2 === null, stuck2 === null ? '' : 'idx=' + stuck2);
+    // 直接 select 到标题行应被吸附走
+    cw.select(0);
+    check('直接选中标题行会被吸附', I.CMDS[cw.index()].kind !== 'header', 'idx=' + cw.index());
+}
+
+console.log('\n=== 便利功能：经验/金币/掉宝倍率 ===');
+{
+    const I = T._internals;
+    const a = actors[1];
+    const e0 = a.expRateBonus(), g0 = a.goldRateBonus(), d0 = a.dropRateBonus();
+
+    T.expMult = 3;
+    check('经验倍率×3 → 倍率+2', Math.abs(a.expRateBonus() - (e0 + 2)) < 1e-9, 'v=' + a.expRateBonus());
+    T.expMult = 1;
+    check('经验倍率 1x 还原', Math.abs(a.expRateBonus() - e0) < 1e-9);
+
+    T.goldMult = 5;
+    check('金币倍率×5 → +400%', a.goldRateBonus() === g0 + 400, 'v=' + a.goldRateBonus());
+    T.goldMult = 1;
+    check('金币倍率 1x 还原', a.goldRateBonus() === g0);
+
+    T.dropMult = 2;
+    check('掉宝倍率×2 → +100%', a.dropRateBonus() === d0 + 100, 'v=' + a.dropRateBonus());
+    T.dropMult = 1;
+    check('掉宝倍率 1x 还原', a.dropRateBonus() === d0);
+
+    // 切换后缓存必须刷新，否则战斗里不生效
+    const expCmd = I.CMDS.find(c => c.sym === 'expMult');
+    $gameParty.maxExpRate();                 // 先填充缓存
+    T.expMult = 2;
+    expCmd.apply();
+    check('切换倍率后缓存被清空', $gameParty.maxExpRate() > 1.9, 'v=' + $gameParty.maxExpRate());
+    T.expMult = 1;
+    expCmd.apply();
+    check('还原后 maxExpRate=1', Math.abs($gameParty.maxExpRate() - 1) < 1e-9, 'v=' + $gameParty.maxExpRate());
+    check('倍率命令为循环项', expCmd.kind === 'cycle' && expCmd.values.length === 4);
+}
+
+console.log('\n=== 提醒机制 ===');
+{
+    const I = T._internals;
+    const warns = I.CMDS.filter(c => c.warn);
+    check('有被标记为⚠的破坏性命令', warns.length >= 5, 'n=' + warns.length);
+    check('⚠命令名带提示符号', warns.every(c => c.name.indexOf('\u26a0') >= 0));
+    check('一键全解锁被标记', !!I.CMDS.find(c => c.sym === 'cheatall' && c.warn));
+    check('便利功能未被标⚠', !I.CMDS.find(c => c.sym === 'expMult' && c.warn));
+    // 分组标题里含提醒文案
+    check('分组标题含使用提醒', I.CMDS.some(c => c.kind === 'header' && c.name.indexOf('降低游戏乐趣') >= 0));
+}
+
+console.log('\n=== 交互式编辑：背包物品数量 ===');
+{
+    const I = T._internals;
+    $gameParty._items['1'] = 5;
+    const list = I.PICK.ownedItem.buildList('item');
+    check('只列出已拥有的物品', list.length > 0 && list.every(e => $gameParty.numItems(e.item) > 0), 'n=' + list.length);
+    const e = list.find(x => x.id === 1) || list[0];
+    const cur = $gameParty.numItems(e.item);
+    I.PICK.ownedItem.confirm(e, cur + 10);
+    check('调高数量', $gameParty.numItems(e.item) === cur + 10, 'now=' + $gameParty.numItems(e.item));
+    I.PICK.ownedItem.confirm(e, 3);
+    check('调低数量', $gameParty.numItems(e.item) === 3, 'now=' + $gameParty.numItems(e.item));
+    I.PICK.ownedItem.confirm(e, 0);
+    check('设为0即移除', $gameParty.numItems(e.item) === 0, 'now=' + $gameParty.numItems(e.item));
 }
 
 console.log('\n=== 实时开关 ===');
