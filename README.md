@@ -10,7 +10,25 @@
 
 ---
 
-## 一、快速开始
+## 一、下载（可选版本）
+
+所有版本都在 **Releases** 页，可自由选择：
+
+👉 **https://github.com/BassYes/anyuan-trainer/releases**
+
+| 附件 | 说明 |
+|---|---|
+| `AnYuan_Trainer-vX.Y.js` | **只要插件本体**（手动放进 `<游戏>/js/plugins/` 并在 `plugins.js` 注册） |
+| `anyuan-trainer-vX.Y.zip` | **完整项目**（含安装器、启动器、内置修改器、存档修改器） |
+| `Source code (zip/tar.gz)` | GitHub 自动生成，对应那个版本的源码快照 |
+
+版本历史见 [CHANGELOG.md](CHANGELOG.md)。当前最新：**v1.3**
+
+> 想用旧版本（如 v1.2）就去 Releases 页选对应 tag 下载即可。
+
+---
+
+## 二、快速开始
 
 双击 **`启动器.bat`**，出现菜单：
 
@@ -38,7 +56,7 @@
 
 ---
 
-## 二、内置修改器（主）
+## 三、内置修改器（主）
 
 ### 打开方式（两种）
 
@@ -92,7 +110,7 @@
 
 ---
 
-## 三、存档修改器（辅）
+## 四、存档修改器（辅）
 
 双击 `save-editor/启动存档修改器.bat`，或在启动器里选 `[5]`。
 
@@ -104,17 +122,19 @@
 
 ---
 
-## 四、目录结构
+## 五、目录结构
 
 ```
 anyuan-trainer/
 ├── 启动器.bat              ← 统一入口（双击这个）
 ├── launcher.js             ← 启动器菜单
+├── release.js              ← 发布新版本（打 tag + 建 Release + 传附件）
+├── CHANGELOG.md            ← 版本历史
 ├── README.md               ← 本文件
 ├── builtin/                ← 内置修改器（主）
 │   ├── AnYuan_Trainer.js   ←   游戏内插件本体
 │   ├── install.js          ←   安装 / 卸载 / 状态
-│   ├── _test_plugin.js     ←   自检（RMMZ 模拟环境，73 项）
+│   ├── _test_plugin.js     ←   自检（RMMZ 模拟环境，142 项）
 │   ├── 安装修改器.bat / 卸载修改器.bat
 │   ├── README.md
 │   └── backups/            ←   plugins.js 备份（含原版基准）
@@ -126,7 +146,7 @@ anyuan-trainer/
 
 ---
 
-## 五、安全与还原
+## 六、安全与还原
 
 - 安装会**修改游戏文件**：在 `<游戏>/js/plugins.js` 的 `$plugins` 末尾追加一条记录，
   并新增 `<游戏>/js/plugins/AnYuan_Trainer.js`。
@@ -137,7 +157,7 @@ anyuan-trainer/
 
 ---
 
-## 六、常见问题
+## 七、常见问题
 
 **Q: 游戏里按 F10 没反应？**
 A: 先确认「查看安装状态」显示已安装 ✓；或者直接用屏幕右上角的「修改器」按钮。
@@ -158,6 +178,13 @@ A: 会。建议优先用【便利功能】里的**经验/金币/掉宝倍率**�
 
 ---
 
-## 七、更新日志
+## 八、更新日志与发布
 
-详见 [CHANGELOG.md](CHANGELOG.md)。
+- 版本历史：[CHANGELOG.md](CHANGELOG.md)
+- **版本下载：https://github.com/BassYes/anyuan-trainer/releases**
+- 发布新版本（维护者）：先更新 `CHANGELOG.md` 与插件内的版本号，然后
+  ```bash
+  node release.js          # 按当前 HEAD 自动打 tag + 建 Release + 传附件
+  node release.js --list   # 查看已发布版本
+  node release.js --dry    # 只看会做什么
+  ```

@@ -1,5 +1,10 @@
 # 黯渊崛起 — 游戏内实时修改器
 
+> **版本下载（可自选版本）：https://github.com/BassYes/anyuan-trainer/releases**
+> 只想要插件本体的话，下载 `AnYuan_Trainer-vX.Y.js`；
+> 想要带安装器/启动器的完整包，下载 `anyuan-trainer-vX.Y.zip`。
+> 本文件对应的是 **最新版**，旧版本请去 Releases 页选择。
+
 仿照「觅长生内置修改器」的思路，为《黯渊崛起》做一个**游戏内 GUI 修改器**：
 游戏里按 **F10**（或点右上角「修改器」按钮）即可呼出菜单，实时开关作弊功能。
 
