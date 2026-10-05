@@ -89,7 +89,10 @@ Scene_Map.prototype = Object.create(Scene_Base.prototype);
 Scene_Map.prototype.update = function () {};
 
 function Window_Base(rect) { this._rect = rect; this.contents = { clear() {} }; }
-Window_Base.prototype.initialize = function () { this.contents = { clear() {} }; };
+Window_Base.prototype.initialize = function (rect) {
+    if (rect) { this.width = rect.width; this.height = rect.height; }
+    this.contents = { clear() {} };
+};
 Window_Base.prototype.refresh = function () {};
 Window_Base.prototype.contentsWidth = function () { return 800; };
 Window_Base.prototype.changeTextColor = function () {};
@@ -101,8 +104,10 @@ function Window_Selectable() { this.contents = { clear() {} }; this._index = 0; 
 Window_Selectable.prototype = Object.create(Window_Base.prototype);
 Window_Selectable.prototype.initialize = function (rect) {
     this._rect = rect; this._index = 0; this.active = false; this.openness = 255;
+    if (rect) { this.width = rect.width; this.height = rect.height; }
     this._handlers = {}; this.contents = { clear() {} };
 };
+Window_Selectable.prototype.isTouchedInsideFrame = function () { return true; };
 Window_Selectable.prototype.maxItems = function () { return 0; };
 Window_Selectable.prototype.itemHeight = function () { return 36; };
 Window_Selectable.prototype.contentsHeight = function () { return 100; };
@@ -183,7 +188,7 @@ global.Scene_Menu = Scene_Menu;
 global.ColorManager = { systemColor: () => 0, powerUpColor: () => 0, normalColor: () => 0 };
 global.Graphics = { boxWidth: 816, boxHeight: 624, frameCount: 0 };
 global.Rectangle = function (x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; };
-global.TouchInput = { update: function () { global.__touchUpdates = (global.__touchUpdates || 0) + 1; } };
+global.TouchInput = { update: function () { global.__touchUpdates = (global.__touchUpdates || 0) + 1; }, wheelY: 0 };
 global.Input = {
     keyMapper: {},
     _pressedTime: 0,
@@ -316,20 +321,11 @@ check('额外帧输入已抑制', global.__log.join('') === '.S');
 check('退出后恢复输入', T._suppressInput === false && Input.update.toString().includes('__inputUpdates'));
 T.gameSpeed = 1;
 
-console.log('\n=== 主菜单入口 ===');
-{
-    const fake = new Window_MenuCommand();
-    Window_MenuCommand.prototype.addOriginalCommands.call(fake);
-    check('主菜单已加入「修改器」', fake._commands.some(c => c.sym === 'anyuanTrainerMenu'), JSON.stringify(fake._commands.map(c => c.name)));
-}
-{
-    const fakeScene = Object.create(Scene_Menu.prototype);
-    fakeScene._commandWindow = { _handlers: {}, setHandler(s, f) { this._handlers[s] = f; } };
-    Scene_Menu.prototype.createCommandWindow.call(fakeScene);
-    check('菜单 handler 已注册', typeof fakeScene._commandWindow._handlers['anyuanTrainerMenu'] === 'function');
-    check('handler 可调用', typeof fakeScene.commandAnYuanTrainer === 'function');
-}
-check('Scene_Menu.update 已被 hook', Scene_Menu.prototype.update.toString().includes('openTrainer'));
+console.log('\n=== 打开方式（已按要求去掉主菜单入口） ===');
+check('主菜单不再注入「修改器」', Window_MenuCommand.prototype.addOriginalCommands.toString().indexOf('anyuanTrainerMenu') < 0);
+check('Scene_Menu.createCommandWindow 未被 hook', Scene_Menu.prototype.createCommandWindow.toString().indexOf('commandAnYuanTrainer') < 0);
+check('Scene_Menu.update 仍支持 F10', Scene_Menu.prototype.update.toString().includes('openTrainer'));
+check('Scene_Map.update 支持 F10', Scene_Map.prototype.update.toString().includes('openTrainer'));
 
 console.log('\n=== ←→ 防误触（关键修复） ===');
 {
@@ -471,19 +467,42 @@ console.log('\n=== 添加物品（选择 + 数量） ===');
 console.log('\n=== 分页列表 ===');
 {
     const I = T._internals;
-    const lw = new I.Window_PickList(new Rectangle(0, 0, 816, 300));
+    const lw = new I.Window_PickList(new Rectangle(0, 0, 816, 456));
     lw.setEntries(I.PICK.item.buildList('armor'));
     check('每页条目数合理', lw._perPage >= 5 && lw._perPage <= 20, 'perPage=' + lw._perPage);
     check('第1页条目数=perPage', lw.maxItems() === lw._perPage);
     check('总页数>1', lw.pageCount() > 1, 'pages=' + lw.pageCount());
     const first = lw._pageEntries[0];
-    lw.nextPage();
+    lw.pageDown();
     check('翻页后内容变化', lw._pageEntries[0] !== first);
     check('页码=2', lw._page === 1);
-    lw.prevPage();
+    lw.pageUp();
     check('翻回首页', lw._pageEntries[0] === first);
-    lw.prevPage();
+    lw.pageUp();
     check('首页再往前不变', lw._page === 0);
+    check('已禁用原生滚轮滚动', lw.isWheelScrollEnabled() === false);
+
+    // 关键不变量：内容高度 <= 可视高度  => maxScrollY()==0
+    // （padding 在游戏里是 12；innerHeight = height - 24）
+    {
+        const inner = lw.height - 24;
+        const overall = lw.contentsHeight();
+        check('列表 maxScrollY==0（不可能滚动错位）', Math.max(0, overall - inner) === 0, 'inner=' + inner + ' overall=' + overall);
+    }
+
+    // 滚轮翻页
+    lw.activate();
+    TouchInput.wheelY = 100;
+    lw.processWheelScroll();
+    check('滚轮下滚→下一页', lw._page === 1, 'page=' + lw._page);
+    TouchInput.wheelY = -100;
+    lw.processWheelScroll();
+    check('滚轮上滚→上一页', lw._page === 0, 'page=' + lw._page);
+    lw.deactivate();
+    TouchInput.wheelY = 100;
+    lw.processWheelScroll();
+    check('未激活时滚轮无效', lw._page === 0);
+    TouchInput.wheelY = 0;
 }
 
 console.log('\n=== 数值输入 ===');
@@ -544,9 +563,22 @@ console.log('\n=== 端到端：Scene_PickNumber.create() + 完整流程 ===');
         const sc = new I.Scene_PickNumber();
         sc.create();                                     // 真正构建界面
         check('create() 不报错', true);
-        check('已创建 4 个窗口', (sc._windows || []).length === 4, 'n=' + (sc._windows || []).length);
-        sc.onCategoryOk();                               // 选「物品」
-        check('类别 OK 后列表已填充', sc._listWindow.maxItems() > 0, 'n=' + sc._listWindow.maxItems());
+        check('已创建 3 个窗口', (sc._windows || []).length === 3, 'n=' + (sc._windows || []).length);
+        check('状态窗高度足够(不裁切)', sc._statusWindow.height >= 60, 'h=' + sc._statusWindow.height);
+        check('无独立类别窗口', sc._categoryWindow === undefined);
+        check('列表已填充', sc._listWindow.maxItems() > 0, 'n=' + sc._listWindow.maxItems());
+        check('默认类别=物品', sc._catName === '物品', sc._catName);
+        // ←→ 直接切类别
+        sc.switchCategory(1);
+        check('→ 切到武器', sc._catName === '武器', sc._catName);
+        check('武器列表已重建', sc._listWindow._entries.length === I.PICK.item.buildList('weapon').length, 'n=' + sc._listWindow._entries.length);
+        sc.switchCategory(1);
+        check('→ 切到防具', sc._catName === '防具');
+        sc.switchCategory(1);
+        check('→ 循环回物品', sc._catName === '物品');
+        sc.switchCategory(-1);
+        check('← 反向切到防具', sc._catName === '防具');
+        sc.switchCategory(1);
         sc._listWindow.select(0);
         const entry = sc._listWindow.currentEntry();
         const before = $gameParty.numItems(entry.item);
@@ -565,19 +597,37 @@ console.log('\n=== 端到端：Scene_PickNumber.create() + 完整流程 ===');
         T._pickConfig = I.PICK.variable;
         const sc2 = new I.Scene_PickNumber();
         sc2.create();
-        sc2.onCategoryOk();
+        check('变量场景默认类别=变量', sc2._catName === '变量', sc2._catName);
         sc2._listWindow.select(0);
         const ve = sc2._listWindow.currentEntry();
         sc2.onItemOk();
         sc2._numberWindow._value = 777;
         sc2.onValueOk();
         check('变量场景端到端写入', $gameVariables.value(ve.id) === 777, 'v=' + $gameVariables.value(ve.id));
+        sc2.switchCategory(1);
+        check('变量场景可切到开关', sc2._catName === '开关', sc2._catName);
+        check('开关列表已重建', sc2._listWindow._entries.length > 100, 'n=' + sc2._listWindow._entries.length);
 
         // 金币场景
         T._numRequest = { title: '设置金币', value: 12345, min: 0, max: 999999999, valueLabel: '金币', onOk: () => {} };
         const sc3 = new I.Scene_NumberInput();
         sc3.create();
         check('金币场景 create() 正常', sc3._inputWindow.value() === 12345, 'v=' + sc3._inputWindow.value());
+        check('金币场景状态窗高度足够', sc3._statusWindow.height >= 60, 'h=' + sc3._statusWindow.height);
+        check('金币窗口禁用原生滚轮', sc3._inputWindow.isWheelScrollEnabled() === false);
+        {
+            const inner = sc3._inputWindow.height - 24;
+            const overall = sc3._inputWindow.contentsHeight();
+            check('数值窗 maxScrollY==0', Math.max(0, overall - inner) === 0, 'inner=' + inner + ' overall=' + overall);
+        }
+        sc3._inputWindow.activate();
+        TouchInput.wheelY = 100;
+        sc3._inputWindow.processWheelScroll();
+        check('滚轮 +1', sc3._inputWindow.value() === 12346, 'v=' + sc3._inputWindow.value());
+        TouchInput.wheelY = -100;
+        sc3._inputWindow.processWheelScroll();
+        check('滚轮 -1', sc3._inputWindow.value() === 12345, 'v=' + sc3._inputWindow.value());
+        TouchInput.wheelY = 0;
     } catch (e) {
         ok = false; err = e.message + '\n' + (e.stack || '').split('\n')[1];
     }

@@ -79,7 +79,7 @@ function install(gameDir) {
         // 已安装也要复制一次，使「安装 / 更新」能升级到最新版插件
         fs.copyFileSync(path.join(HERE, PLUGIN_FILE), p.pluginDest);
         console.log('✓ 修改器已安装，插件文件已更新到最新版');
-        console.log('  打开方式：F10 / 主菜单「修改器」/ 右上角按钮。');
+        console.log('  打开方式：F10 或 右上角「修改器」按钮。');
         return;
     }
 
@@ -118,7 +118,6 @@ function install(gameDir) {
     console.log('');
     console.log('✅ 安装完成！启动游戏后：');
     console.log('   · 按 F10');
-    console.log('   · 或 主菜单 → 「修改器」');
     console.log('   · 或 点右上角「修改器」按钮');
 }
 

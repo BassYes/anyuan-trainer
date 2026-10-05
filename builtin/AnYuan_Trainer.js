@@ -3,18 +3,17 @@
 //=============================================================================
 /*:
  * @target MZ
- * @plugindesc v1.2 黯渊崛起 游戏内实时修改器（F10 / 主菜单「修改器」/ 右上角按钮 打开）
+ * @plugindesc v1.2 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
  * @author AnYuan Trainer
  * @help
  * ============================================================
  *  打开 / 关闭:
  *     · 按 F10
- *     · 主菜单 → 「修改器」
  *     · 或点右上角「修改器」按钮
  *  操作:  ↑↓ 选择   Z/回车 执行   X/Esc 关闭
  * ============================================================
  *  交互式编辑:
- *    添加物品…      按类别浏览全部物品/武器/防具，输入数量添加
+ *    添加物品…      物品/武器/防具（←→ 直接切类别，Q/W 或滚轮翻页），输入数量添加
  *    设置金币…      输入精确金币数量
  *    设置角色等级…  选择队伍角色并设定等级
  *    修改变量/开关… 选择变量或开关并修改数值
@@ -468,16 +467,35 @@
     Window_CheatStatus.prototype.constructor = Window_CheatStatus;
     Window_CheatStatus.prototype.initialize = function(rect) {
         Window_Base.prototype.initialize.call(this, rect);
-        this._message = '黯渊崛起 内置修改器';
+        this._message = '';
         this.refresh();
     };
-    Window_CheatStatus.prototype.setMessage = function(m) { this._message = m; this.refresh(); };
+    // 只在内容变化时重绘，避免每帧刷新
+    Window_CheatStatus.prototype.setMessage = function(m) {
+        m = m || '';
+        if (this._message === m) return;
+        this._message = m;
+        this.refresh();
+    };
+    // 第二行（操作提示），可选
+    Window_CheatStatus.prototype.setSubMessage = function(m) {
+        m = m || '';
+        if (this._message2 === m) return;
+        this._message2 = m;
+        this.refresh();
+    };
     Window_CheatStatus.prototype.refresh = function() {
         this.contents.clear();
+        const w = this.contentsWidth();
         this.changeTextColor(ColorManager.systemColor());
-        this.drawText('● AnYuan Trainer', 0, 0, 200);
+        this.drawText('AnYuan Trainer', 0, 0, 170);
         this.resetTextColor();
-        this.drawText(this._message || '', 210, 0, this.contentsWidth() - 210);
+        this.drawText(this._message || '', 178, 0, Math.max(0, w - 178));
+        if (this._message2) {
+            this.changeTextColor(ColorManager.systemColor());
+            this.drawText(this._message2, 0, 36, w);
+            this.resetTextColor();
+        }
     };
 
     //=========================================================================
@@ -539,17 +557,20 @@
     Scene_Cheat.prototype = Object.create(Scene_MenuBase.prototype);
     Scene_Cheat.prototype.constructor = Scene_Cheat;
 
+    Scene_Cheat.prototype.helpWindowRect = function() {
+        return new Rectangle(0, Graphics.boxHeight - 96, Graphics.boxWidth, 96);
+    };
+
     Scene_Cheat.prototype.create = function() {
         Scene_MenuBase.prototype.create.call(this);
         const w = Graphics.boxWidth;
         const h = Graphics.boxHeight;
-        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 48));
+        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 64));
         this.addWindow(this._statusWindow);
-        this._commandWindow = new Window_CheatCommand(new Rectangle(0, 48, w, h - 48 - 108));
+        this._commandWindow = new Window_CheatCommand(new Rectangle(0, 64, w, h - 64 - 96));
         this._commandWindow.setHandler('ok', this.onCommandOk.bind(this));
         this._commandWindow.setHandler('cancel', this.popScene.bind(this));
         this.addWindow(this._commandWindow);
-        if (this._helpWindow) this._helpWindow.y = h - 108;
         this._commandWindow.activate();
         this.updateHelp();
     };
@@ -732,34 +753,26 @@
     };
 
     //=========================================================================
-    // 界面: 类别选择（横向）
-    //=========================================================================
-    function Window_PickCategory() { this.initialize(...arguments); }
-    Window_PickCategory.prototype = Object.create(Window_HorzCommand.prototype);
-    Window_PickCategory.prototype.constructor = Window_PickCategory;
-    Window_PickCategory.prototype.windowWidth = function() { return Graphics.boxWidth; };
-    Window_PickCategory.prototype.maxCols = function() { return Math.max(1, (this._cats || []).length); };
-    Window_PickCategory.prototype.setup = function(cats) { this._cats = cats || []; this.refresh(); };
-    Window_PickCategory.prototype.makeCommandList = function() {
-        for (const c of (this._cats || [])) this.addCommand(c.name, c.sym);
-    };
-
-    //=========================================================================
     // 界面: 分页列表（避免超长位图）
+    //   操作: ↑↓ 选择 / Q W 翻页 / 滚轮翻页 / ←→ 由 Scene 切换类别
     //=========================================================================
     function Window_PickList() { this.initialize(...arguments); }
     Window_PickList.prototype = Object.create(Window_Selectable.prototype);
     Window_PickList.prototype.constructor = Window_PickList;
     Window_PickList.prototype.initialize = function(rect) {
-        this._perPage = Math.max(1, Math.floor((rect.height - 16) / 36));
+        this._perPage = Math.max(1, Math.floor((rect.height - 24) / 36));
         Window_Selectable.prototype.initialize.call(this, rect);
         this._entries = [];
         this._pageEntries = [];
         this._page = 0;
     };
     Window_PickList.prototype.itemHeight = function() { return 36; };
-    Window_PickList.prototype.contentsHeight = function() { return this._perPage * 36 + 16; };
+    // 内容高度 = 每页行数×行高，<= 可视高度；这样 maxScrollY()==0，
+    // ensureCursorVisible() 无法滚动内容，选中框永远不会错位/超出。
+    Window_PickList.prototype.contentsHeight = function() { return this._perPage * this.itemHeight(); };
     Window_PickList.prototype.maxItems = function() { return (this._pageEntries || []).length; };
+    // 禁止原生滚轮滚动（它只滚内容不换页，会导致选中框错位/跑到窗口外）
+    Window_PickList.prototype.isWheelScrollEnabled = function() { return false; };
     Window_PickList.prototype.setEntries = function(entries) {
         this._entries = entries || [];
         this._page = 0;
@@ -771,23 +784,32 @@
     Window_PickList.prototype.updatePage = function() {
         const s = this._page * this._perPage;
         this._pageEntries = this._entries.slice(s, s + this._perPage);
+        this.scrollTo(0, 0);      // 先归零滚动，再重绘（topIndex 依赖 _scrollY）
         this.refresh();
         this.select(0);
-        this.scrollTo(0, 0);
     };
-    Window_PickList.prototype.nextPage = function() {
+    Window_PickList.prototype.pageDown = function() {
         if (this._page < this.pageCount() - 1) { this._page++; this.updatePage(); }
     };
-    Window_PickList.prototype.prevPage = function() {
+    Window_PickList.prototype.pageUp = function() {
         if (this._page > 0) { this._page--; this.updatePage(); }
     };
     Window_PickList.prototype.currentEntry = function() { return this._pageEntries[this.index()]; };
     Window_PickList.prototype.processCursorMove = function() {
         if (this.isCursorMovable()) {
-            if (Input.isRepeated('right') || Input.isRepeated('pagedown')) { this.nextPage(); return; }
-            if (Input.isRepeated('left') || Input.isRepeated('pageup')) { this.prevPage(); return; }
+            const lastIndex = this.index();
+            if (Input.isRepeated('down')) this.cursorDown(Input.isTriggered('down'));
+            if (Input.isRepeated('up')) this.cursorUp(Input.isTriggered('up'));
+            if (Input.isRepeated('pagedown')) this.pageDown();
+            if (Input.isRepeated('pageup')) this.pageUp();
+            if (this.index() !== lastIndex) this.playCursorSound();
         }
-        Window_Selectable.prototype.processCursorMove.call(this);
+    };
+    Window_PickList.prototype.processWheelScroll = function() {
+        if (!this.active || !this.isTouchedInsideFrame()) return;
+        const threshold = 20;
+        if (TouchInput.wheelY >= threshold) this.pageDown();
+        if (TouchInput.wheelY <= -threshold) this.pageUp();
     };
     Window_PickList.prototype.drawItem = function(index) {
         const e = this._pageEntries[index];
@@ -815,8 +837,9 @@
         this._cfg = null; this._entry = null; this._value = 0;
     };
     Window_ValueInput.prototype.itemHeight = function() { return 36; };
-    Window_ValueInput.prototype.contentsHeight = function() { return 3 * 36 + 16; };
+    Window_ValueInput.prototype.contentsHeight = function() { return 3 * 36; };
     Window_ValueInput.prototype.maxItems = function() { return 1; };
+    Window_ValueInput.prototype.isWheelScrollEnabled = function() { return false; };
     Window_ValueInput.prototype.setup = function(cfg, entry) {
         this._cfg = cfg; this._entry = entry;
         this._value = Math.min(cfg.max, Math.max(cfg.min, cfg.initial === undefined ? cfg.min : cfg.initial));
@@ -861,40 +884,43 @@
         if (Input.isRepeated('pagedown')) this.changeValue(100);
         if (Input.isRepeated('pageup')) this.changeValue(-100);
     };
+    Window_ValueInput.prototype.processWheelScroll = function() {
+        if (!this.active || !this.isTouchedInsideFrame()) return;
+        const threshold = 20;
+        if (TouchInput.wheelY >= threshold) this.changeValue(1);
+        if (TouchInput.wheelY <= -threshold) this.changeValue(-1);
+    };
 
     //=========================================================================
-    // 场景: 列表选一项 → 输入数值
+    // 场景: 列表选一项 → 输入数值（无独立类别窗口，←→ 直接切换类别）
     //=========================================================================
     function Scene_PickNumber() { this.initialize(...arguments); }
     Scene_PickNumber.prototype = Object.create(Scene_MenuBase.prototype);
     Scene_PickNumber.prototype.constructor = Scene_PickNumber;
 
     Scene_PickNumber.prototype.helpWindowRect = function() {
-        return new Rectangle(0, Graphics.boxHeight - 56, Graphics.boxWidth, 56);
+        return new Rectangle(0, Graphics.boxHeight - 96, Graphics.boxWidth, 96);
     };
+
+    // 本场景不用独立帮助窗口：提示直接放在状态栏第二行，把空间留给列表
+    Scene_PickNumber.prototype.createHelpWindow = function() {};
 
     Scene_PickNumber.prototype.create = function() {
         Scene_MenuBase.prototype.create.call(this);
         const cfg = T._pickConfig || PICK.item;
         this._cfg = cfg;
+        this._catIndex = 0;
         const w = Graphics.boxWidth, h = Graphics.boxHeight;
 
-        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 48));
+        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 96));
         this.addWindow(this._statusWindow);
-        this._statusWindow.setMessage(cfg.title + ' — 选一项后输入数值');
+        this._statusWindow.setSubMessage('↑↓选择   ←→切类别   Q/W或滚轮翻页   Z选定   X返回');
 
-        const catH = this.calcWindowHeight(1, true);
-        this._categoryWindow = new Window_PickCategory(new Rectangle(0, 48, w, catH));
-        this._categoryWindow.setup(cfg.categories);
-        this._categoryWindow.setHandler('ok', this.onCategoryOk.bind(this));
-        this._categoryWindow.setHandler('cancel', this.popScene.bind(this));
-        this.addWindow(this._categoryWindow);
-
-        const listY = 48 + catH;
-        const numH = 168;
-        this._listWindow = new Window_PickList(new Rectangle(0, listY, w, h - listY - 60));
+        const listY = 96;
+        const numH = 180;
+        this._listWindow = new Window_PickList(new Rectangle(0, listY, w, h - listY));
         this._listWindow.setHandler('ok', this.onItemOk.bind(this));
-        this._listWindow.setHandler('cancel', this.onListCancel.bind(this));
+        this._listWindow.setHandler('cancel', this.popScene.bind(this));
         this.addWindow(this._listWindow);
 
         this._numberWindow = new Window_ValueInput(new Rectangle(Math.floor(w / 2) - 230, Math.floor(h / 2) - numH / 2, 460, numH));
@@ -903,15 +929,37 @@
         this._numberWindow.hide();
         this.addWindow(this._numberWindow);
 
-        this._categoryWindow.activate();
-        this._categoryWindow.select(0);
+        this.loadCategory();
     };
 
-    Scene_PickNumber.prototype.onCategoryOk = function() {
-        const sym = this._categoryWindow.currentSymbol();
-        this._listWindow.setEntries(this._cfg.buildList(sym));
+    Scene_PickNumber.prototype.loadCategory = function() {
+        const cats = this._cfg.categories || [];
+        if (cats.length > 0) {
+            if (this._catIndex < 0) this._catIndex = cats.length - 1;
+            if (this._catIndex >= cats.length) this._catIndex = 0;
+        }
+        const cat = cats[this._catIndex] || { name: '', sym: '' };
+        this._catName = cat.name;
+        this._listWindow.setEntries(this._cfg.buildList(cat.sym));
         this._listWindow.activate();
-        this._listWindow.select(0);
+        this.updateStatus();
+    };
+
+    Scene_PickNumber.prototype.switchCategory = function(dir) {
+        const cats = this._cfg.categories || [];
+        if (cats.length <= 1) return;
+        this._catIndex += dir;
+        this.loadCategory();
+    };
+
+    Scene_PickNumber.prototype.updateStatus = function() {
+        const cats = this._cfg.categories || [];
+        const lw = this._listWindow;
+        let s = this._cfg.title;
+        if (cats.length > 1) s += ' 【' + (this._catName || '') + '】←→切换类别';
+        else if (this._catName) s += ' 【' + this._catName + '】';
+        s += '   共 ' + lw._entries.length + ' 项   第 ' + (lw._page + 1) + '/' + lw.pageCount() + ' 页';
+        this._statusWindow.setMessage(s);
     };
 
     Scene_PickNumber.prototype.onItemOk = function() {
@@ -941,11 +989,6 @@
         this._listWindow.activate();
     };
 
-    Scene_PickNumber.prototype.onListCancel = function() {
-        if ((this._cfg.categories || []).length > 1) this._categoryWindow.activate();
-        else this.popScene();
-    };
-
     Scene_PickNumber.prototype.update = function() {
         Scene_MenuBase.prototype.update.call(this);
         if (Input.isTriggered('anyuanTrainer')) {
@@ -953,14 +996,16 @@
             else this.popScene();
             return;
         }
-        if (!this._helpWindow) return;
         if (this._numberWindow && this._numberWindow.active) {
-            this._helpWindow.setText('←→ ±1   ↑↓ ±10   Q/W ±100   Z 确认   X 取消');
-        } else if (this._listWindow && this._listWindow.active) {
-            const lw = this._listWindow;
-            this._helpWindow.setText('↑↓ 选择   ←→/Q W 翻页 【第 ' + (lw._page + 1) + '/' + lw.pageCount() + ' 页，共 ' + lw._entries.length + ' 项】   Z 选定   X 返回');
-        } else {
-            this._helpWindow.setText('↑↓ 选择类别   Z 进入   X 退出');
+            this._statusWindow.setSubMessage('←→ ±1   ↑↓ ±10   Q/W ±100   滚轮 ±1    Z/回车 确认   X/Esc 返回');
+            return;
+        }
+        this._statusWindow.setSubMessage('↑↓选择   ←→切类别   Q/W或滚轮翻页   Z选定   X返回');
+        if (this._listWindow.active) {
+            // ←→ 直接切换类别（无需 Esc）
+            if (Input.isTriggered('left')) this.switchCategory(-1);
+            else if (Input.isTriggered('right')) this.switchCategory(1);
+            this.updateStatus();
         }
     };
 
@@ -972,14 +1017,14 @@
     Scene_NumberInput.prototype.constructor = Scene_NumberInput;
 
     Scene_NumberInput.prototype.helpWindowRect = function() {
-        return new Rectangle(0, Graphics.boxHeight - 56, Graphics.boxWidth, 56);
+        return new Rectangle(0, Graphics.boxHeight - 96, Graphics.boxWidth, 96);
     };
 
     Scene_NumberInput.prototype.create = function() {
         Scene_MenuBase.prototype.create.call(this);
         const req = T._numRequest || { title: '输入数值', value: 0, min: 0, max: 999999999 };
         const w = Graphics.boxWidth, h = Graphics.boxHeight;
-        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 48));
+        this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 64));
         this.addWindow(this._statusWindow);
         this._statusWindow.setMessage(req.title || '输入数值');
 
@@ -1007,7 +1052,7 @@
     Scene_NumberInput.prototype.update = function() {
         Scene_MenuBase.prototype.update.call(this);
         if (Input.isTriggered('anyuanTrainer')) { this.onCancel(); return; }
-        if (this._helpWindow) this._helpWindow.setText('←→ ±1   ↑↓ ±10   Q/W ±100   Z 确认   X 取消');
+        if (this._helpWindow) this._helpWindow.setText('←→ ±1   ↑↓ ±10   Q/W ±100   滚轮 ±1    Z/回车 确认   X/Esc 取消');
     };
 
     //=========================================================================
@@ -1041,23 +1086,8 @@
     }
 
     //=========================================================================
-    // 主菜单「修改器」入口（照抄本游戏插件 BZ_EncyclopediaHub 的写法）
+    // 入口: 热键 + 右上角按钮（已按要求去掉主菜单入口）
     //=========================================================================
-    if (typeof Window_MenuCommand !== 'undefined' && typeof Scene_Menu !== 'undefined') {
-        const _addOriginalCommands = Window_MenuCommand.prototype.addOriginalCommands;
-        Window_MenuCommand.prototype.addOriginalCommands = function() {
-            _addOriginalCommands.call(this);
-            this.addCommand('修改器', 'anyuanTrainerMenu', true);
-        };
-        const _createCommandWindow = Scene_Menu.prototype.createCommandWindow;
-        Scene_Menu.prototype.createCommandWindow = function() {
-            _createCommandWindow.call(this);
-            this._commandWindow.setHandler('anyuanTrainerMenu', this.commandAnYuanTrainer.bind(this));
-        };
-        Scene_Menu.prototype.commandAnYuanTrainer = function() {
-            SceneManager.push(Scene_Cheat);
-        };
-    }
 
     // 右上角按钮（NW.js DOM 覆盖层）
     function createButton() {
@@ -1092,7 +1122,7 @@
     window.AnYuanTrainer._internals = {
         PICK, CMDS, RUN, infoText, LIST,
         Scene_Cheat, Scene_PickNumber, Scene_NumberInput,
-        Window_PickList, Window_ValueInput, Window_PickCategory,
+        Window_PickList, Window_ValueInput,
     };
-    console.log('[AnYuan_Trainer] v1.2 已加载：F10 / 主菜单「修改器」/ 右上角按钮 打开');
+    console.log('[AnYuan_Trainer] v1.2 已加载：F10 或右上角按钮 打开');
 })();
