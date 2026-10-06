@@ -157,29 +157,29 @@ Window_Selectable.prototype.show = function () {};
 Window_Selectable.prototype.hide = function () {};
 Window_Selectable.prototype.isOpenAndActive = function () { return true; };
 Window_Selectable.prototype.itemLineRect = function (i) { return { x: 0, y: i * 36, width: 800, height: 36 }; };
-function Window_Command() { this._commands = []; }
+function Window_Command() { this._list = []; }
 Window_Command.prototype = Object.create(Window_Selectable.prototype);
 Window_Command.prototype.initialize = function (rect) {
     Window_Selectable.prototype.initialize.call(this, rect);
-    this._commands = [];
+    this._list = [];
     this.refresh();          // 真实 RMMZ 这里会 refresh()，否则 makeCommandList 不会被调
     this.select(0);
     this.activate();
 };
-Window_Command.prototype.clearCommandList = function () { this._commands = []; };
+Window_Command.prototype.clearCommandList = function () { this._list = []; };
 Window_Command.prototype.makeCommandList = function () {};
-Window_Command.prototype.addCommand = function (name, sym, en) { this._commands.push({ name, sym, en }); };
+Window_Command.prototype.addCommand = function (name, sym, en) { this._list.push({ name, symbol: sym, enabled: en !== false }); };
 Window_Command.prototype.refresh = function () {
     this.clearCommandList();
     this.makeCommandList();
     Window_Selectable.prototype.refresh.call(this);
 };
-Window_Command.prototype.maxItems = function () { return this._commands.length; };
-Window_Command.prototype.currentSymbol = function () { return this._commands[this.index()] ? this._commands[this.index()].sym : null; };
+Window_Command.prototype.maxItems = function () { return this._list.length; };   // 与真实 RMMZ 一致
+Window_Command.prototype.currentSymbol = function () { return this._list[this.index()] ? this._list[this.index()].symbol : null; };
 Window_Command.prototype.drawText = function () {};
 Window_Command.prototype.itemLineRect = function () { return { x: 0, y: 0, width: 800, height: 36 }; };
 Window_Command.prototype.isCommandEnabled = function () { return true; };
-function Window_HorzCommand() { this._commands = []; }
+function Window_HorzCommand() { this._list = []; }
 Window_HorzCommand.prototype = Object.create(Window_Command.prototype);
 Window_HorzCommand.prototype.initialize = function (rect) { Window_Command.prototype.initialize.call(this, rect); };
 function Window_Help() { this.contents = { clear() {} }; }
@@ -187,7 +187,7 @@ Window_Help.prototype = Object.create(Window_Base.prototype);
 Window_Help.prototype.initialize = function () { this.contents = { clear() {} }; };
 Window_Help.prototype.setText = function (t) { this._text = t; };
 
-function Window_MenuCommand() { this._commands = []; }
+function Window_MenuCommand() { this._list = []; }
 Window_MenuCommand.prototype = Object.create(Window_Command.prototype);
 Window_MenuCommand.prototype.addOriginalCommands = function () {};
 
@@ -729,6 +729,35 @@ console.log('\n=== 端到端：Scene_Cheat.create()（用户报错的那个界�
     T.god = false; T.oneHit = false; T.noEncounter = false; T.through = false;
     T.speed = false; T.infiniteMp = false; T.autoHeal = false;
     T.gameSpeed = 1; T.battleSpeed = 1; T.expMult = 1; T.goldMult = 1; T.dropMult = 1;
+}
+
+console.log('\n=== 兜底：窗口创建失败时不崩溃 ===');
+{
+    const I = T._internals;
+    let ok = true, err = '';
+    try {
+        const sc = new I.Scene_Cheat();
+        sc.create();
+        // 人为把 buildUi 弄挂，再重建一次，应该进入兜底界面而不是抛错
+        const sc2 = new I.Scene_Cheat();
+        const origBuild = I.Scene_Cheat.prototype.buildUi;
+        I.Scene_Cheat.prototype.buildUi = function () { throw new Error('模拟窗口创建失败'); };
+        sc2.create();
+        I.Scene_Cheat.prototype.buildUi = origBuild;
+        check('buildUi 抛错时不向外抛', true);
+        check('已创建兜底错误窗口', !!sc2._errorWindow);
+        check('命令行窗口置空', sc2._commandWindow === null);
+        // 兜底状态下 update 不应报错，且 ok/cancel 能退出
+        let popped = false;
+        sc2.popScene = function () { popped = true; };
+        Input.isTriggered = k => k === 'ok';
+        sc2.update();
+        Input.isTriggered = () => false;
+        check('兜底界面按键可退出', popped === true);
+    } catch (e) {
+        ok = false; err = e.message;
+    }
+    check('兜底流程全程无异常', ok, err);
 }
 
 console.log('\n=== 端到端：Scene_PickNumber.create() + 完整流程 ===');

@@ -7,3 +7,7 @@ _g/
 _test/
 __pycache__/
 *.log
+
+# 插件诊断日志
+trainer_error.log
+builtin/trainer_error.log

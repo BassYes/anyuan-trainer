@@ -3,7 +3,7 @@
 //=============================================================================
 /*:
  * @target MZ
- * @plugindesc v1.3.1 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
+ * @plugindesc v1.3.2 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
  * @author AnYuan Trainer
  * @help
  * ============================================================
@@ -59,26 +59,60 @@
         goldMult: 1,
         dropMult: 1,
         _suppressInput: false,
-        version: '1.3.1'
+        version: '1.3.2'
     });
 
     const say = msg => { T.lastMessage = msg; };
 
     //=========================================================================
-    // 错误诊断：把异常写进控制台（带堆栈），便于定位问题
+    // 错误诊断：写入日志文件 + 控制台（带堆栈），便于定位问题
     //=========================================================================
-    function reportError(e) {
+    function trainerLogPath() {
+        try {
+            if (typeof require !== 'function') return null;
+            const path = require('path');
+            let base = '.';
+            if (typeof process !== 'undefined' && process.mainModule && process.mainModule.filename) {
+                base = path.dirname(process.mainModule.filename);
+            }
+            return path.join(base, 'trainer_error.log');
+        } catch (e) { return null; }
+    }
+    function logToFile(text) {
+        try {
+            if (typeof require !== 'function') return;
+            const fs = require('fs');
+            const p = trainerLogPath();
+            if (!p) return;
+            fs.appendFileSync(p, '[' + new Date().toISOString() + '] ' + text + '\n');
+        } catch (e) { /* ignore */ }
+    }
+    function reportError(e, ctx) {
         const msg = (e && e.message) ? e.message : String(e);
         const stack = (e && e.stack) ? e.stack : '';
-        T.lastError = msg + (stack ? ('\n' + stack.split('\n').slice(0, 4).join('\n')) : '');
-        try { console.error('[AnYuan_Trainer] ' + msg + '\n' + stack); } catch (x) { /* ignore */ }
-        return T.lastError;
+        const line = (ctx ? ('@' + ctx + ' ') : '') + msg + (stack ? ('\n' + stack) : '');
+        T.lastError = line;
+        try { console.error('[AnYuan_Trainer] ' + line); } catch (x) { /* ignore */ }
+        logToFile(line + '\n---');
+        return line;
+    }
+    // 包裹一个方法，出错时记录「哪一步」出错，然后继续抛出
+    function guard(label, fn) {
+        return function() {
+            try {
+                return fn.apply(this, arguments);
+            } catch (e) {
+                reportError(e, label);
+                throw e;
+            }
+        };
     }
     if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('error', function(ev) {
-            try { reportError(ev.error || ev.message); } catch (x) { /* ignore */ }
+            try { reportError(ev.error || ev.message, 'window.onerror'); } catch (x) { /* ignore */ }
         });
     }
+    logToFile('[AnYuan_Trainer] v' + (T.version || '?') + ' 插件已加载，等待复现');
 
     //=========================================================================
     // 从插件参数提取清单（运行时读取，不需要硬编码）
@@ -577,6 +611,11 @@
     Window_CheatCommand.prototype.constructor = Window_CheatCommand;
     Window_CheatCommand.prototype.numVisibleRows = function() { return 12; };
     Window_CheatCommand.prototype.maxCols = function() { return 1; };
+    // 防御：原生 Window_Command.maxItems 是 this._list.length，
+    // 初始化早期 _list 可能还未建立，这里自实现避免报 “length of undefined”
+    Window_CheatCommand.prototype.maxItems = function() {
+        return (this._list || []).length;
+    };
     // 分组标题行不可选
     Window_CheatCommand.prototype.isCommandEnabled = function(index) {
         const c = CMDS[index];
@@ -657,11 +696,11 @@
     TrainerScene.prototype = Object.create(Scene_Base.prototype);
     TrainerScene.prototype.constructor = TrainerScene;
 
-    TrainerScene.prototype.create = function() {
+    TrainerScene.prototype.create = guard('TrainerScene.create', function() {
         Scene_Base.prototype.create.call(this);
         this.createBackground();
         this.createWindowLayer();
-    };
+    });
 
     // 背景：优先用地图快照（与游戏菜单一致），失败则用半透明遮罩兜底
     TrainerScene.prototype.createBackground = function() {
@@ -700,18 +739,42 @@
     Scene_Cheat.prototype.constructor = Scene_Cheat;
 
     Scene_Cheat.prototype.create = function() {
+        logToFile('Scene_Cheat.create: 开始');
         TrainerScene.prototype.create.call(this);
         const w = Graphics.boxWidth;
         const h = Graphics.boxHeight;
+        try {
+            this.buildUi(w, h);
+            logToFile('Scene_Cheat.create: 完成');
+        } catch (e) {
+            reportError(e, 'Scene_Cheat.create');
+            // 兜底：不让游戏弹报错崩溃，而是在界面里提示
+            try {
+                this._commandWindow = null;
+                const errWin = new Window_Help(new Rectangle(0, 0, w, h));
+                errWin.setText('修改器初始化失败\n' + (e && e.message ? e.message : e) +
+                    '\n\n详细信息已写入游戏目录的 trainer_error.log');
+                this.addWindow(errWin);
+                this._errorWindow = errWin;
+                logToFile('Scene_Cheat.create: 已进入兜底界面');
+            } catch (e2) {
+                reportError(e2, 'Scene_Cheat.create.fallback');
+            }
+        }
+    };
 
+    Scene_Cheat.prototype.buildUi = function(w, h) {
         this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 96));
+        logToFile('Scene_Cheat.create: 状态窗 ok');
         this.addWindow(this._statusWindow);
         this._statusWindow.setSubMessage(W + ' 适度使用：改太狠会让游戏很快失去乐趣，建议优先用【便利功能】');
 
         this._helpWindow = new Window_Help(new Rectangle(0, h - 96, w, 96));
+        logToFile('Scene_Cheat.create: 帮助窗 ok');
         this.addWindow(this._helpWindow);
 
         this._commandWindow = new Window_CheatCommand(new Rectangle(0, 96, w, h - 96 - 96));
+        logToFile('Scene_Cheat.create: 命令窗 ok');
         this._commandWindow.setHandler('ok', this.onCommandOk.bind(this));
         this._commandWindow.setHandler('cancel', this.popScene.bind(this));
         this.addWindow(this._commandWindow);
@@ -726,7 +789,8 @@
         this._helpWindow.setText(c && c.warn ? (W + ' 影响游戏寿命 — ' + base) : base);
     };
 
-    Scene_Cheat.prototype.onCommandOk = function() {
+    Scene_Cheat.prototype.onCommandOk = guard('Scene_Cheat.onCommandOk', function() {
+        if (!this._commandWindow) return;
         const sym = this._commandWindow.currentSymbol();
         const c = CMDS.find(x => x.sym === sym);
         if (!c) return;
@@ -774,11 +838,21 @@
         this._commandWindow.refresh();
         this._commandWindow.activate();
         this.updateHelp();
-    };
+    });
 
-    Scene_Cheat.prototype.update = function() {
+    Scene_Cheat.prototype.update = guard('Scene_Cheat.update', function() {
         TrainerScene.prototype.update.call(this);
         this._frames = (this._frames || 0) + 1;
+        if (this._errorWindow) {
+            if (Input.isTriggered('anyuanTrainer') || Input.isTriggered('cancel') || Input.isTriggered('ok')) {
+                this.popScene();
+            }
+            return;
+        }
+        if (!this._commandWindow) {
+            if (Input.isTriggered('anyuanTrainer')) this.popScene();
+            return;
+        }
         if (this._frames <= 3) { this.updateHelp(); return; }
         if (Input.isTriggered('anyuanTrainer')) { this.popScene(); return; }
         // ←→ 只对「开关 / 倍速」类命令生效，避免误触执行“一键”类动作
@@ -787,7 +861,7 @@
             if (c && (c.kind === 'toggle' || c.kind === 'cycle')) this.onCommandOk();
         }
         this.updateHelp();
-    };
+    });
 
     //=========================================================================
     // 存档信息
@@ -1233,13 +1307,19 @@
     Input.keyMapper[OPEN_KEY] = 'anyuanTrainer';
 
     function openTrainer() {
-        if (SceneManager._scene instanceof Scene_Cheat) return;
-        if (SceneManager.isSceneChanging && SceneManager.isSceneChanging()) return;
-        const s = SceneManager._scene;
-        const ok = s instanceof Scene_Map ||
-            (typeof Scene_Menu !== 'undefined' && s instanceof Scene_Menu);
-        if (!ok) return;
-        SceneManager.push(Scene_Cheat);
+        try {
+            if (SceneManager._scene instanceof Scene_Cheat) return;
+            if (SceneManager.isSceneChanging && SceneManager.isSceneChanging()) return;
+            const s = SceneManager._scene;
+            const ok = s instanceof Scene_Map ||
+                (typeof Scene_Menu !== 'undefined' && s instanceof Scene_Menu);
+            if (!ok) return;
+            logToFile('openTrainer: 准备 push Scene_Cheat');
+            SceneManager.push(Scene_Cheat);
+            logToFile('openTrainer: push 完成');
+        } catch (e) {
+            reportError(e, 'openTrainer');
+        }
     }
 
     const _Scene_Map_update = Scene_Map.prototype.update;
@@ -1296,5 +1376,5 @@
         Scene_Cheat, Scene_PickNumber, Scene_NumberInput,
         Window_PickList, Window_ValueInput, Window_CheatCommand,
     };
-    console.log('[AnYuan_Trainer] v1.3.1 已加载：F10 或右上角按钮 打开');
+    console.log('[AnYuan_Trainer] v1.3.2 已加载：F10 或右上角按钮 打开');
 })();
