@@ -3,7 +3,7 @@
 //=============================================================================
 /*:
  * @target MZ
- * @plugindesc v1.3 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
+ * @plugindesc v1.3.1 黯渊崛起 游戏内实时修改器（F10 或右上角按钮 打开）
  * @author AnYuan Trainer
  * @help
  * ============================================================
@@ -59,10 +59,26 @@
         goldMult: 1,
         dropMult: 1,
         _suppressInput: false,
-        version: '1.3'
+        version: '1.3.1'
     });
 
     const say = msg => { T.lastMessage = msg; };
+
+    //=========================================================================
+    // 错误诊断：把异常写进控制台（带堆栈），便于定位问题
+    //=========================================================================
+    function reportError(e) {
+        const msg = (e && e.message) ? e.message : String(e);
+        const stack = (e && e.stack) ? e.stack : '';
+        T.lastError = msg + (stack ? ('\n' + stack.split('\n').slice(0, 4).join('\n')) : '');
+        try { console.error('[AnYuan_Trainer] ' + msg + '\n' + stack); } catch (x) { /* ignore */ }
+        return T.lastError;
+    }
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('error', function(ev) {
+            try { reportError(ev.error || ev.message); } catch (x) { /* ignore */ }
+        });
+    }
 
     //=========================================================================
     // 从插件参数提取清单（运行时读取，不需要硬编码）
@@ -629,21 +645,72 @@
     //=========================================================================
     // 界面: 修改器场景
     //=========================================================================
-    function Scene_Cheat() { this.initialize(...arguments); }
-    Scene_Cheat.prototype = Object.create(Scene_MenuBase.prototype);
-    Scene_Cheat.prototype.constructor = Scene_Cheat;
+    //=========================================================================
+    // 场景基类：继承 Scene_Base（**不用 Scene_MenuBase**）
+    //   本游戏有大量插件（VisuMZ + BZ_*）改写 Scene_MenuBase.prototype
+    //   的 create/start/update/createButtons/createPageButtons 等，
+    //   其中会引用它们自己期望存在的窗口/列表，与自己搭的场景不兼容，
+    //   会导致类似 “Cannot read property 'length' of undefined” 的报错。
+    //   所以修改器自己建窗口层/背景/帮助窗口，完全不依赖 Scene_MenuBase。
+    //=========================================================================
+    function TrainerScene() { this.initialize(...arguments); }
+    TrainerScene.prototype = Object.create(Scene_Base.prototype);
+    TrainerScene.prototype.constructor = TrainerScene;
 
-    Scene_Cheat.prototype.helpWindowRect = function() {
-        return new Rectangle(0, Graphics.boxHeight - 96, Graphics.boxWidth, 96);
+    TrainerScene.prototype.create = function() {
+        Scene_Base.prototype.create.call(this);
+        this.createBackground();
+        this.createWindowLayer();
     };
 
+    // 背景：优先用地图快照（与游戏菜单一致），失败则用半透明遮罩兜底
+    TrainerScene.prototype.createBackground = function() {
+        let bmp = null;
+        try {
+            if (typeof SceneManager.snapForBackground === 'function') {
+                SceneManager.snapForBackground();
+                bmp = SceneManager.backgroundBitmap();
+            }
+        } catch (e) { bmp = null; }
+        try {
+            this._bgSprite = new Sprite();
+            if (bmp) {
+                this._bgSprite.bitmap = bmp;
+            } else {
+                const w = Graphics.width, h = Graphics.height;
+                this._bgSprite.bitmap = new Bitmap(w, h);
+                this._bgSprite.bitmap.fillAll('rgba(0,0,0,0.8)');
+            }
+            this._bgSprite.opacity = bmp ? 192 : 255;
+            this.addChild(this._bgSprite);
+        } catch (e) { reportError(e); }
+    };
+
+    TrainerScene.prototype.start = function() {
+        Scene_Base.prototype.start.call(this);
+        this.startFadeIn(this.fadeSpeed(), false);
+    };
+
+    TrainerScene.prototype.popScene = function() {
+        SceneManager.pop();
+    };
+
+    function Scene_Cheat() { this.initialize(...arguments); }
+    Scene_Cheat.prototype = Object.create(TrainerScene.prototype);
+    Scene_Cheat.prototype.constructor = Scene_Cheat;
+
     Scene_Cheat.prototype.create = function() {
-        Scene_MenuBase.prototype.create.call(this);
+        TrainerScene.prototype.create.call(this);
         const w = Graphics.boxWidth;
         const h = Graphics.boxHeight;
+
         this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 96));
         this.addWindow(this._statusWindow);
         this._statusWindow.setSubMessage(W + ' 适度使用：改太狠会让游戏很快失去乐趣，建议优先用【便利功能】');
+
+        this._helpWindow = new Window_Help(new Rectangle(0, h - 96, w, 96));
+        this.addWindow(this._helpWindow);
+
         this._commandWindow = new Window_CheatCommand(new Rectangle(0, 96, w, h - 96 - 96));
         this._commandWindow.setHandler('ok', this.onCommandOk.bind(this));
         this._commandWindow.setHandler('cancel', this.popScene.bind(this));
@@ -710,7 +777,7 @@
     };
 
     Scene_Cheat.prototype.update = function() {
-        Scene_MenuBase.prototype.update.call(this);
+        TrainerScene.prototype.update.call(this);
         this._frames = (this._frames || 0) + 1;
         if (this._frames <= 3) { this.updateHelp(); return; }
         if (Input.isTriggered('anyuanTrainer')) { this.popScene(); return; }
@@ -1011,18 +1078,11 @@
     // 场景: 列表选一项 → 输入数值（无独立类别窗口，←→ 直接切换类别）
     //=========================================================================
     function Scene_PickNumber() { this.initialize(...arguments); }
-    Scene_PickNumber.prototype = Object.create(Scene_MenuBase.prototype);
+    Scene_PickNumber.prototype = Object.create(TrainerScene.prototype);
     Scene_PickNumber.prototype.constructor = Scene_PickNumber;
 
-    Scene_PickNumber.prototype.helpWindowRect = function() {
-        return new Rectangle(0, Graphics.boxHeight - 96, Graphics.boxWidth, 96);
-    };
-
-    // 本场景不用独立帮助窗口：提示直接放在状态栏第二行，把空间留给列表
-    Scene_PickNumber.prototype.createHelpWindow = function() {};
-
     Scene_PickNumber.prototype.create = function() {
-        Scene_MenuBase.prototype.create.call(this);
+        TrainerScene.prototype.create.call(this);
         const cfg = T._pickConfig || PICK.item;
         this._cfg = cfg;
         this._catIndex = 0;
@@ -1106,7 +1166,7 @@
     };
 
     Scene_PickNumber.prototype.update = function() {
-        Scene_MenuBase.prototype.update.call(this);
+        TrainerScene.prototype.update.call(this);
         if (Input.isTriggered('anyuanTrainer')) {
             if (this._numberWindow && this._numberWindow.active) this.onValueCancel();
             else this.popScene();
@@ -1129,15 +1189,11 @@
     // 场景: 单纯的数值输入（如设置金币）
     //=========================================================================
     function Scene_NumberInput() { this.initialize(...arguments); }
-    Scene_NumberInput.prototype = Object.create(Scene_MenuBase.prototype);
+    Scene_NumberInput.prototype = Object.create(TrainerScene.prototype);
     Scene_NumberInput.prototype.constructor = Scene_NumberInput;
 
-    Scene_NumberInput.prototype.helpWindowRect = function() {
-        return new Rectangle(0, Graphics.boxHeight - 96, Graphics.boxWidth, 96);
-    };
-
     Scene_NumberInput.prototype.create = function() {
-        Scene_MenuBase.prototype.create.call(this);
+        TrainerScene.prototype.create.call(this);
         const req = T._numRequest || { title: '输入数值', value: 0, min: 0, max: 999999999 };
         const w = Graphics.boxWidth, h = Graphics.boxHeight;
         this._statusWindow = new Window_CheatStatus(new Rectangle(0, 0, w, 64));
@@ -1166,7 +1222,7 @@
     };
 
     Scene_NumberInput.prototype.update = function() {
-        Scene_MenuBase.prototype.update.call(this);
+        TrainerScene.prototype.update.call(this);
         if (Input.isTriggered('anyuanTrainer')) { this.onCancel(); return; }
         if (this._helpWindow) this._helpWindow.setText('←→ ±1   ↑↓ ±10   Q/W ±100   滚轮 ±1    Z/回车 确认   X/Esc 取消');
     };
@@ -1240,5 +1296,5 @@
         Scene_Cheat, Scene_PickNumber, Scene_NumberInput,
         Window_PickList, Window_ValueInput, Window_CheatCommand,
     };
-    console.log('[AnYuan_Trainer] v1.3 已加载：F10 或右上角按钮 打开');
+    console.log('[AnYuan_Trainer] v1.3.1 已加载：F10 或右上角按钮 打开');
 })();

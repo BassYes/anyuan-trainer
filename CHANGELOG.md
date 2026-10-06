@@ -1,5 +1,25 @@
 # 更新日志
 
+## v1.3.1 — 内置修改器（修复打开报错）
+
+**修复：打开修改器时游戏报 `TypeError: Cannot read property 'length' of undefined`**
+
+原因：修改器的界面场景原本继承 `Scene_MenuBase`，而本游戏有十几个插件
+（VisuMZ 系列与作者自制的 `BZ_*`）都改写了 `Scene_MenuBase` 的
+`create / start / update / createButtons / createPageButtons / needsPageButtons` 等方法，
+其中会引用它们自己期望存在的窗口/列表（如角色切换、触摸按钮等），
+与自己搭出来的场景不兼容，就会抛 `length of undefined`。
+
+修复：三个修改器场景改为直接继承 **`Scene_Base`**，自己创建
+窗口层、背景、帮助窗口，**完全绕开 `Scene_MenuBase` 的所有改写**。
+
+另：新增全局错误诊断（`window.onerror` + `reportError`），
+以后若再出问题，控制台（F12，需自行开启 devtools）会打印带堆栈的详细错误。
+
+自检从 142 项增加到 151 项（含 `Scene_Cheat.create()`、遍历执行每个命令项）。
+
+---
+
 ## v1.3 — 内置修改器
 
 **新增「便利功能」（降肝但不毁游戏）**

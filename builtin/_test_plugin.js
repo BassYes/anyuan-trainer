@@ -77,7 +77,17 @@ function Game_CharacterBase() {}
 Game_CharacterBase.prototype.distancePerFrame = function () { return 0.25; };
 
 function Scene_Base() {}
-Scene_Base.prototype.initialize = function () { this._windows = []; };
+Scene_Base.prototype.initialize = function () { this._windows = []; this.children = []; };
+Scene_Base.prototype.addChild = function (c) { this.children.push(c); };
+Scene_Base.prototype.create = function () {};
+Scene_Base.prototype.start = function () { this._started = true; this._active = true; };
+Scene_Base.prototype.stop = function () { this._active = false; };
+Scene_Base.prototype.isActive = function () { return !!this._active; };
+Scene_Base.prototype.isBusy = function () { return false; };
+Scene_Base.prototype.fadeSpeed = function () { return 24; };
+Scene_Base.prototype.startFadeIn = function () {};
+Scene_Base.prototype.createWindowLayer = function () { this._windowLayer = { addChild() {} }; };
+Scene_Base.prototype.createColorFilter = function () {};
 Scene_Base.prototype.update = function () {};
 Scene_Base.prototype.calcWindowHeight = function (n, sel) { return 44 * n + 16; };
 Scene_Base.prototype.addWindow = function (w) { (this._windows = this._windows || []).push(w); };
@@ -206,8 +216,12 @@ global.Window_MenuCommand = Window_MenuCommand;
 global.Scene_Battle = Scene_Battle;
 global.Scene_Menu = Scene_Menu;
 global.ColorManager = { systemColor: () => 0, powerUpColor: () => 0, normalColor: () => 0, textColor: () => 0 };
-global.Graphics = { boxWidth: 816, boxHeight: 624, frameCount: 0 };
+global.Graphics = { boxWidth: 816, boxHeight: 624, width: 816, height: 624, frameCount: 0 };
 global.Rectangle = function (x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; };
+global.Sprite = function () { this.bitmap = null; this.opacity = 255; };
+global.Sprite.prototype.addChild = function () {};
+global.Bitmap = function (w, h) { this.width = w; this.height = h; };
+global.Bitmap.prototype.fillAll = function () {};
 global.TouchInput = { update: function () { global.__touchUpdates = (global.__touchUpdates || 0) + 1; }, wheelY: 0 };
 global.Input = {
     keyMapper: {},
@@ -222,6 +236,9 @@ global.SceneManager = {
     _scene: new Scene_Map(),
     isSceneChanging: () => false,
     push: () => {},
+    pop: () => {},
+    snapForBackground: () => {},
+    backgroundBitmap: () => null,
     updateMain: function () { global.__log.push(global.AnYuanTrainer._suppressInput ? 'S' : '.'); global.Graphics.frameCount++; },
 };
 global.SoundManager = {};
@@ -674,6 +691,45 @@ console.log('\n=== 修改变量 / 开关 ===');
 
 console.log('\n=== 存档信息 ===');
 check('infoText 正常', T._internals.infoText().includes('金币'), T._internals.infoText().slice(0, 60));
+
+console.log('\n=== 端到端：Scene_Cheat.create()（用户报错的那个界面） ===');
+{
+    const I = T._internals;
+    let ok = true, err = '';
+    try {
+        const sc = new I.Scene_Cheat();
+        sc.create();
+        check('Scene_Cheat.create() 不报错', true);
+        check('已创建 3 个窗口(状态/帮助/命令)', (sc._windows || []).length === 3, 'n=' + (sc._windows || []).length);
+        check('状态窗高度足够', sc._statusWindow.height === 96, 'h=' + sc._statusWindow.height);
+        check('命令窗已创建', !!sc._commandWindow);
+        check('光标落在可选项上', I.CMDS[sc._commandWindow.index()].kind !== 'header', 'idx=' + sc._commandWindow.index());
+        sc.updateHelp();
+        check('updateHelp 正常', true);
+        // 模拟执行一个开关命令（不触发一键）
+        const godIdx = I.CMDS.findIndex(c => c.sym === 'god');
+        sc._commandWindow.select(godIdx);
+        sc.onCommandOk();
+        check('开关命令可执行', T.god === true);
+        T.god = false;
+        // 遍历所有命令项，确保 onCommandOk 不会因为某个 kind 未处理而报错
+        let bad = null;
+        for (let i = 0; i < I.CMDS.length; i++) {
+            if (I.CMDS[i].kind === 'header') continue;
+            if (I.CMDS[i].kind === 'scene') continue;   // 会 push 场景，跳过
+            sc._commandWindow.select(i);
+            try { sc.onCommandOk(); } catch (e) { bad = I.CMDS[i].sym + ': ' + e.message; break; }
+        }
+        check('所有命令项都能正常处理', bad === null, bad || '');
+    } catch (e) {
+        ok = false; err = e.message + '\n' + (e.stack || '').split('\n')[1];
+    }
+    check('Scene_Cheat 全程无异常', ok, err);
+    // 恢复状态
+    T.god = false; T.oneHit = false; T.noEncounter = false; T.through = false;
+    T.speed = false; T.infiniteMp = false; T.autoHeal = false;
+    T.gameSpeed = 1; T.battleSpeed = 1; T.expMult = 1; T.goldMult = 1; T.dropMult = 1;
+}
 
 console.log('\n=== 端到端：Scene_PickNumber.create() + 完整流程 ===');
 {
